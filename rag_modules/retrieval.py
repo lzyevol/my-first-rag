@@ -50,14 +50,20 @@ def rrf_fusion(
     Reciprocal Rank Fusion：融合两个检索结果。
     不看分数只看排名，两边排名都靠前的文档胜出。
     """
+    # 去重 key：优先用 (来源文件, 内容前100字符)，避免不同文档前100字符相同时被误去重
+    def _dedup_key(doc: Document) -> str:
+        source = doc.metadata.get("filename", doc.metadata.get("source", ""))
+        content_prefix = doc.page_content[:100]
+        return f"{source}::{content_prefix}"
+
     rrf_scores = {}
 
     for rank, doc in enumerate(bm25_results):
-        doc_id = doc.page_content[:100]  # 用内容前 100 字符做去重 key
+        doc_id = _dedup_key(doc)
         rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1.0 / (rank + k)
 
     for rank, doc in enumerate(vector_results):
-        doc_id = doc.page_content[:100]
+        doc_id = _dedup_key(doc)
         rrf_scores[doc_id] = rrf_scores.get(doc_id, 0) + 1.0 / (rank + k)
 
     # 按 RRF 分数降序排列
@@ -65,7 +71,7 @@ def rrf_fusion(
     merged: List[Tuple[Document, float]] = []
 
     for doc in bm25_results + vector_results:
-        doc_id = doc.page_content[:100]
+        doc_id = _dedup_key(doc)
         if doc_id not in seen:
             seen.add(doc_id)
             merged.append((doc, rrf_scores.get(doc_id, 0.0)))

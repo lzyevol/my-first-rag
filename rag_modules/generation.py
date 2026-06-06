@@ -8,16 +8,20 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_deepseek import ChatDeepSeek
 
 
-SYSTEM_PROMPT = """你是一个知识渊博的助手。请根据下面的上下文和你的知识回答用户问题。
-  如果上下文有帮助就参考，没有就用自己的知识回答。
-  回答要详细、完整。"""
+SYSTEM_PROMPT = """你是我的个人知识库助手。请根据下面提供的参考资料回答问题。
+规则：
+1. 回答必须基于提供的参考资料，不要使用外部知识。
+2. 如果参考资料不足以回答问题，请直接告知：'抱歉，我的笔记中没有找到相关信息。'
+3. 回答要详细、完整，尽量结构化地列出要点。
+4. 回答中应引用参考资料的来源编号（如'根据[来源1]'）。"""
 
-USER_TEMPLATE = """上下文:
+USER_TEMPLATE = """## 参考资料
 {context}
 
-问题: {question}
+## 问题
+{question}
 
-回答:"""
+## 回答（请基于以上资料，并标注来源编号）:"""
 
 
 def build_context(docs: List[Document]) -> str:
@@ -47,17 +51,34 @@ def generate(
 ) -> str:
     """
     生成答案的主入口。
-    query_type 用于后续扩展（如 list 用简洁模式，detail 用详细模式）。
+
+    Args:
+        question: 用户问题
+        retrieved_docs: 检索到的文档列表
+        llm: 大模型实例
+        query_type: 查询类型 — "list" 列举类 / "detail" 步骤类 / "general" 通用
     """
     if not retrieved_docs:
         return "抱歉，没有在笔记中找到相关内容。"
 
     context = build_context(retrieved_docs)
+
+    # 根据查询类型附加生成风格提示
+    type_hints = {
+        "list": "\n（请用列表形式组织回答，如 1. 2. 3.）",
+        "detail": "\n（请给出详细的步骤说明，每一步都要解释清楚。）",
+        "general": "",
+    }
+    question_with_hint = question + type_hints.get(query_type, "")
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
         ("human", USER_TEMPLATE),
     ])
 
-    messages = prompt.format_messages(context=context, question=question)
+    messages = prompt.format_messages(
+        context=context,
+        question=question_with_hint,
+    )
     response = llm.invoke(messages)
     return response.content
